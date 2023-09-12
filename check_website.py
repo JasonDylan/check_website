@@ -1,13 +1,13 @@
 import os
-import requests
+import datetime
 import smtplib
 import time
+import requests
 import paramiko
-import datetime
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 import traceback
 import logging
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from logging.handlers import TimedRotatingFileHandler
 
 # 配置参数
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 # 创建按时间切割的文件处理器
-log_file_path = os.path.join(log_folder, f"website_check.log")
+log_file_path = os.path.join(log_folder, "website_check.log")
 
 file_handler = TimedRotatingFileHandler(
     log_file_path, when="midnight", interval=1, backupCount=5)
@@ -69,11 +69,13 @@ def send_restart_email():
     subject = "【api.tolosupplychains.com网站已重新启动】" + now
     body = "网站已经重新启动，https://api.tolosupplychains.com/SellingPartnerAPI/Login "
     send_email(subject, body)
-    logger.info(f"Website is restart and accessible.")
+    logger.info("Website is restart and accessible.")
 
 
 def send_success_email():
     global LAST_DAY
+    global FAILED_TIMES
+    FAILED_TIMES = 0
     now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     # 检查日志文件是否已经存在，如果不存在则发送邮件
     if LAST_DAY != now[:10]:
@@ -83,15 +85,18 @@ def send_success_email():
         subject = "【api.tolosupplychains.com网站今日正常连接】" + now
         body = "网站正常连接 https://api.tolosupplychains.com/SellingPartnerAPI/Login "
         send_email(subject, body)
-    logger.info(f"Website is accessible.")
+    logger.info("Website is accessible.")
 
 
 def send_failed_email():
-    now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    subject = "【api.tolosupplychains.com网站失联告警】" + now + "，失去连接，请及时联系管理员"
-    body = "网站失联，请及时联系管理员处理。 https://api.tolosupplychains.com/SellingPartnerAPI/Login"
-    send_email(subject, body)
-    logger.info(f"Website is unaccessible.")
+    global FAILED_TIMES
+    FAILED_TIMES+=1
+    if FAILED_TIMES <= 3:
+        now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        subject = "【api.tolosupplychains.com网站失联告警】" + now + "，失去连接，请及时联系管理员"
+        body = "网站失联，请及时联系管理员处理。 https://api.tolosupplychains.com/SellingPartnerAPI/Login"
+        send_email(subject, body)
+    logger.info("Website is unaccessible.")
 
 
 def check_website():
@@ -109,6 +114,7 @@ def check_website():
             send_success_email()
             time.sleep(300)  # 等待 5 分钟
         else:
+            send_failed_email()
             restart_process()
     except Exception as ex:
         logger.info(ex)
@@ -124,7 +130,6 @@ def is_log_file_exists():
 
 
 def restart_process():
-    # send_failed_email()
     logger.info("restarting...")
     try:
         # SSH连接参数
@@ -187,11 +192,11 @@ def restart_process():
 
 # 检查网站访问状态，每15分钟检查一次
 LAST_DAY = datetime.date.today().strftime("%Y-%m-%d")
+FAILED_TIMES = 0
 logger.info(f"LAST_DAY:{LAST_DAY}")
 while True:
-    while True:
-        try:
-            check_website()
-        except Exception as ex:
-            logger.info(ex)
-            traceback.print_exc()
+    try:
+        check_website()
+    except Exception as ex:
+        logger.info(ex)
+        traceback.print_exc()
